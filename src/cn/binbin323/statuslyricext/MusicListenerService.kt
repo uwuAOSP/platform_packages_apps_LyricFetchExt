@@ -23,6 +23,7 @@ import androidx.core.app.NotificationCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.preference.PreferenceManager
 import cn.binbin323.statuslyricext.misc.Constants
+import cn.binbin323.statuslyricext.misc.LyricFeatureSettings
 import cn.zhaiyifan.lyric.LyricUtils
 import cn.zhaiyifan.lyric.model.Lyric
 import java.util.concurrent.ExecutorService
@@ -41,7 +42,6 @@ class MusicListenerService : NotificationListenerService() {
         private const val AVIUM_EXTRA_TYPE = "type"
         private const val AVIUM_EXTRA_TEXT = "text"
         private const val AVIUM_CHIP_TYPE_MUSIC = 1
-        private const val AVIUM_STATUS_BAR_LYRIC_KEY = "status_bar_show_lyric"
     }
 
     private val mMainHandler = Handler(Looper.getMainLooper())
@@ -177,9 +177,7 @@ class MusicListenerService : NotificationListenerService() {
 
     private fun postLyricNotification(text: String) {
         if (mIsAviumRom) {
-            val lyricEnabled = android.provider.Settings.Secure.getInt(
-                contentResolver, AVIUM_STATUS_BAR_LYRIC_KEY, 0
-            ) == 1
+            val lyricEnabled = LyricFeatureSettings.isEnabled(this)
             if (lyricEnabled) {
                 sendBroadcast(Intent(AVIUM_ACTION_SHOW_CHIP).apply {
                     putExtra(AVIUM_EXTRA_TYPE, AVIUM_CHIP_TYPE_MUSIC)

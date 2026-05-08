@@ -18,9 +18,11 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.preference.Preference
+import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceFragmentCompat
-import androidx.preference.SwitchPreference
 import cn.binbin323.statuslyricext.misc.Constants
+import cn.binbin323.statuslyricext.misc.LyricFeatureSettings
+import com.android.settingslib.widget.MainSwitchPreference
 
 class SettingsActivity : FragmentActivity() {
 
@@ -121,28 +123,67 @@ class SettingsActivity : FragmentActivity() {
     class SettingsFragment : PreferenceFragmentCompat(),
         Preference.OnPreferenceClickListener {
 
-        private var mEnabledPreference: SwitchPreference? = null
+        private var mMainSwitchPreference: MainSwitchPreference? = null
+        private var mNotificationListenerPreference: Preference? = null
+        private var mDetailsCategory: PreferenceCategory? = null
+        private var mIgnoredPackagesPreference: Preference? = null
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.root_preferences, rootKey)
-            mEnabledPreference = findPreference(Constants.PREFERENCE_KEY_ENABLED)
-            mEnabledPreference?.let { pref ->
-                pref.isChecked = isNotificationListenerEnabled(context)
-                pref.onPreferenceClickListener = this
+            mMainSwitchPreference = findPreference(Constants.PREFERENCE_KEY_MAIN_SWITCH)
+            mNotificationListenerPreference =
+                findPreference(Constants.PREFERENCE_KEY_NOTIFICATION_ACCESS)
+            mDetailsCategory = findPreference(Constants.PREFERENCE_KEY_DETAILS_CATEGORY)
+            mIgnoredPackagesPreference = findPreference(Constants.PREFERENCE_KEY_IGNORED_PACKAGES)
+            mMainSwitchPreference?.isPersistent = false
+
+            mMainSwitchPreference?.setOnPreferenceChangeListener { _, newValue ->
+                val enabled = newValue as Boolean
+                val ctx = context ?: return@setOnPreferenceChangeListener false
+                LyricFeatureSettings.setEnabled(ctx, enabled)
+                updateDetailPreferencesEnabled(enabled)
+                true
             }
+            mNotificationListenerPreference?.onPreferenceClickListener = this
+            syncState()
         }
 
         override fun onResume() {
             super.onResume()
-            mEnabledPreference?.isChecked = isNotificationListenerEnabled(context)
+            syncState()
         }
 
         override fun onPreferenceClick(preference: Preference): Boolean {
-            if (preference == mEnabledPreference) {
+            if (preference == mNotificationListenerPreference) {
                 startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"))
                 return true
             }
             return false
+        }
+
+        private fun syncState() {
+            val context = context ?: return
+            val lyricEnabled = LyricFeatureSettings.isEnabled(context)
+            mMainSwitchPreference?.isChecked = lyricEnabled
+            updateNotificationListenerState()
+            updateDetailPreferencesEnabled(lyricEnabled)
+        }
+
+        private fun updateNotificationListenerState() {
+            val allowed = isNotificationListenerEnabled(context)
+            mNotificationListenerPreference?.summary = getString(
+                if (allowed) {
+                    R.string.notification_listener_summary_on
+                } else {
+                    R.string.notification_listener_summary_off
+                }
+            )
+        }
+
+        private fun updateDetailPreferencesEnabled(enabled: Boolean) {
+            mDetailsCategory?.isEnabled = enabled
+            mNotificationListenerPreference?.isEnabled = enabled
+            mIgnoredPackagesPreference?.isEnabled = enabled
         }
     }
 }

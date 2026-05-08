@@ -8,6 +8,9 @@
 
     <!-- Preference Titles -->
     <string name="preferences_header">Preferences</string>
-    <string name="enabled_title">Enabled</string>
+    <string name="lyric_feature_title">Status bar lyric</string>
+    <string name="notification_listener_title">Notification access</string>
+    <string name="notification_listener_summary_on">Allowed</string>
+    <string name="notification_listener_summary_off">Tap to grant access</string>
     <string name="ignored_apps_title">Ignored apps</string>
 </resources>

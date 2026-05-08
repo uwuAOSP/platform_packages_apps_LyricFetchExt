@@ -2,14 +2,20 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:title="@string/app_name">
 
+    <com.android.settingslib.widget.MainSwitchPreference
+        android:key="status_bar_lyric"
+        android:title="@string/lyric_feature_title" />
 
-    <PreferenceCategory android:title="@string/preferences_header">
-        <SwitchPreference
-            android:key="enabled"
-            android:title="@string/enabled_title" />
+    <PreferenceCategory
+        android:key="details"
+        android:title="@string/preferences_header"
+        android:dependency="status_bar_lyric">
+        <Preference
+            android:key="notification_listener"
+            android:title="@string/notification_listener_title" />
         <cn.binbin323.statuslyricext.preferences.PackageListPreference
             android:title="@string/ignored_apps_title"
             android:key="ignored_packages"
-            android:dependency="enabled" />
+            android:dependency="status_bar_lyric" />
     </PreferenceCategory>
 </PreferenceScreen>
