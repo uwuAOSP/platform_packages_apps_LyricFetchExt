@@ -4,11 +4,9 @@ import android.content.Context
 import android.media.MediaMetadata
 import android.text.TextUtils
 import android.util.Log
-import cn.binbin323.statuslyricext.provider.BinLrcProvider
 import cn.binbin323.statuslyricext.provider.ILrcProvider
 import cn.binbin323.statuslyricext.provider.KugouProvider
 import cn.binbin323.statuslyricext.provider.NeteaseProvider
-import cn.binbin323.statuslyricext.provider.QQMusicProvider
 import cn.binbin323.statuslyricext.provider.utils.LyricSearchUtil
 import cn.zhaiyifan.lyric.LyricUtils
 import cn.zhaiyifan.lyric.model.Lyric
@@ -24,8 +22,6 @@ object LrcGetter {
     private const val TAG = "LrcGetter"
     private val HEX = "0123456789ABCDEF".toCharArray()
     private val sNeteaseProvider = NeteaseProvider()
-    private val sBinProvider = BinLrcProvider()
-    private val sQQMusicProvider = QQMusicProvider()
     private val sKugouProvider = KugouProvider()
     private val sExecutor = Executors.newCachedThreadPool()
 
@@ -69,10 +65,8 @@ object LrcGetter {
 
         // Query active providers in parallel, pick the best metadata match.
         val providers: List<Pair<String, ILrcProvider>> = listOf(
-            "bin" to sBinProvider,
             "kugou" to sKugouProvider,
-            "netease" to sNeteaseProvider,
-            "qqmusic" to sQQMusicProvider
+            "netease" to sNeteaseProvider
         )
         val futures: List<Pair<String, Future<ILrcProvider.LyricResult?>>> = providers.map { (name, provider) ->
             name to sExecutor.submit<ILrcProvider.LyricResult?> {
