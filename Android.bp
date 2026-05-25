@@ -22,8 +22,17 @@ android_app {
     platform_apis: true,
     certificate: "platform",
     system_ext_specific: true,
+    required: ["default-permissions-cn.binbin323.statuslyricext"],
 
     static_libs: [
         "androidx.core_core",
     ],
+}
+
+prebuilt_etc {
+    name: "default-permissions-cn.binbin323.statuslyricext",
+    system_ext_specific: true,
+    sub_dir: "default-permissions",
+    src: "default-permissions-cn.binbin323.statuslyricext.xml",
+    filename_from_src: true,
 }
