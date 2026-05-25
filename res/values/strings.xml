@@ -1,16 +1,3 @@
 <resources>
     <string name="app_name">LyricFetchExt</string>
-
-    <string name="profile_choose_app">Choose app</string>
-    <string name="dialog_delete_title">Delete</string>
-    <string name="dialog_delete_message">Remove selected item?</string>
-    <string name="add_package_to_title">Add application</string>
-
-    <!-- Preference Titles -->
-    <string name="preferences_header">Preferences</string>
-    <string name="lyric_feature_title">Status bar lyric</string>
-    <string name="notification_listener_title">Notification access</string>
-    <string name="notification_listener_summary_on">Allowed</string>
-    <string name="notification_listener_summary_off">Tap to grant access</string>
-    <string name="ignored_apps_title">Ignored apps</string>
 </resources>

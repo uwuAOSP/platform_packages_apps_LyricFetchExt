@@ -1,14 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">歌词获取扩展</string>
-    <string name="preferences_header">设置</string>
-    <string name="profile_choose_app">选择应用</string>
-    <string name="dialog_delete_title">删除</string>
-    <string name="dialog_delete_message">移除所选项目？</string>
-    <string name="add_package_to_title">添加应用</string>
-    <string name="lyric_feature_title">状态栏歌词</string>
-    <string name="notification_listener_title">通知使用权限</string>
-    <string name="notification_listener_summary_on">已允许</string>
-    <string name="notification_listener_summary_off">点按以授予权限</string>
-    <string name="ignored_apps_title">忽略应用</string>
 </resources>

@@ -24,8 +24,6 @@ android_app {
     system_ext_specific: true,
 
     static_libs: [
-        "androidx.localbroadcastmanager_localbroadcastmanager",
-        "androidx.preference_preference",
-        "SettingsLib",
+        "androidx.core_core",
     ],
 }
