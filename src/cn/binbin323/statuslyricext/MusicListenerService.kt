@@ -1,27 +1,22 @@
 package cn.binbin323.statuslyricext
 
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.content.SharedPreferences
+import android.database.ContentObserver
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.text.TextUtils
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.localbroadcastmanager.content.LocalBroadcastManager
-import androidx.preference.PreferenceManager
 import cn.binbin323.statuslyricext.misc.Constants
 import cn.binbin323.statuslyricext.misc.LyricFeatureSettings
 import cn.zhaiyifan.lyric.LyricUtils
@@ -36,12 +31,6 @@ class MusicListenerService : NotificationListenerService() {
         private const val TAG = "MusicListenerService"
         private const val NOTIFICATION_ID_LRC = 1
         private const val POLL_INTERVAL_MS = 50L
-
-        // Avium ROM 歌词广播接口
-        private const val AVIUM_ACTION_SHOW_CHIP = "org.avium.systemui.chips.action.SHOW_CHIP"
-        private const val AVIUM_EXTRA_TYPE = "type"
-        private const val AVIUM_EXTRA_TEXT = "text"
-        private const val AVIUM_CHIP_TYPE_MUSIC = 1
     }
 
     private val mMainHandler = Handler(Looper.getMainLooper())
@@ -53,8 +42,7 @@ class MusicListenerService : NotificationListenerService() {
     private var mMediaController: MediaController? = null
     private var mNotificationManager: NotificationManager? = null
 
-    private val mIgnoredPackageList = mutableListOf<String>()
-    private lateinit var mSharedPreferences: SharedPreferences
+    private val mAllowedPackageList = mutableListOf<String>()
 
     private var mLyric: Lyric? = null
     private var mLastDisplayedFromTime = -1L
@@ -64,8 +52,14 @@ class MusicListenerService : NotificationListenerService() {
     private var mFetchingTitle: String? = null
     // Current song title shown in the notification content area.
     private var mCurrentSongTitle: String = ""
-    // Whether the current ROM is Avium (detected once at connect time).
-    private var mIsAviumRom: Boolean = false
+
+    private val mAllowedPackagesObserver = object : ContentObserver(mMainHandler) {
+        override fun onChange(selfChange: Boolean) {
+            updateAllowedPackageList()
+            unbindSession()
+            bindSession()
+        }
+    }
 
     // ── Tick runnable ─────────────────────────────────────────────────────────
 
@@ -146,12 +140,6 @@ class MusicListenerService : NotificationListenerService() {
         Log.i(TAG, "onPlaybackStopped")
         mIsPlaying = false
         mMainHandler.removeCallbacks(mTickRunnable)
-        if (mIsAviumRom) {
-            sendBroadcast(Intent(AVIUM_ACTION_SHOW_CHIP).apply {
-                putExtra(AVIUM_EXTRA_TYPE, AVIUM_CHIP_TYPE_MUSIC)
-                putExtra(AVIUM_EXTRA_TEXT, "")
-            })
-        }
         mNotificationManager?.cancel(NOTIFICATION_ID_LRC)
     }
 
@@ -176,17 +164,6 @@ class MusicListenerService : NotificationListenerService() {
     }
 
     private fun postLyricNotification(text: String) {
-        if (mIsAviumRom) {
-            val lyricEnabled = LyricFeatureSettings.isEnabled(this)
-            if (lyricEnabled) {
-                sendBroadcast(Intent(AVIUM_ACTION_SHOW_CHIP).apply {
-                    putExtra(AVIUM_EXTRA_TYPE, AVIUM_CHIP_TYPE_MUSIC)
-                    putExtra(AVIUM_EXTRA_TEXT, text)
-                })
-            }
-            return
-        }
-
         val nm = mNotificationManager ?: return
         val songTitle = mCurrentSongTitle.ifEmpty { text }
 
@@ -205,13 +182,6 @@ class MusicListenerService : NotificationListenerService() {
                 Constants.FLAG_ALWAYS_SHOW_TICKER or
                 Constants.FLAG_ONLY_UPDATE_TICKER
         nm.notify(NOTIFICATION_ID_LRC, notification)
-    }
-
-    private fun detectAviumRom(): Boolean = try {
-        packageManager.getPackageInfo("org.avium.alivenotifscore", 0)
-        true
-    } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
-        false
     }
 
     // ── MediaController callbacks ─────────────────────────────────────────────
@@ -248,21 +218,26 @@ class MusicListenerService : NotificationListenerService() {
             mMediaController?.unregisterCallback(mMediaCallback)
             mMediaController = null
 
-if (controllers.isNullOrEmpty()) {
-            onPlaybackStopped()
-            return@OnActiveSessionsChangedListener
-        }
+            if (controllers.isNullOrEmpty()) {
+                onPlaybackStopped()
+                return@OnActiveSessionsChangedListener
+            }
 
-        var best: MediaController? = null
-        for (c in controllers) {
-            if (mIgnoredPackageList.contains(c.packageName)) continue
-            if (getControllerState(c) == PlaybackState.STATE_PLAYING) { best = c; break }
-            if (best == null) best = c
-        }
-        if (best == null) {
-            onPlaybackStopped()
-            return@OnActiveSessionsChangedListener
-        }
+            var best: MediaController? = null
+            for (c in controllers) {
+                if (mAllowedPackageList.isNotEmpty() && !mAllowedPackageList.contains(c.packageName)) {
+                    continue
+                }
+                if (getControllerState(c) == PlaybackState.STATE_PLAYING) {
+                    best = c
+                    break
+                }
+                if (best == null) best = c
+            }
+            if (best == null) {
+                onPlaybackStopped()
+                return@OnActiveSessionsChangedListener
+            }
 
             Log.i(TAG, "binding to: ${best.packageName}")
             mMediaController = best
@@ -274,34 +249,20 @@ if (controllers.isNullOrEmpty()) {
     private fun getControllerState(c: MediaController): Int =
         c.playbackState?.state ?: PlaybackState.STATE_NONE
 
-    // ── Broadcast receiver ────────────────────────────────────────────────────
-
-    private val mIgnoredPackageReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            if (Constants.BROADCAST_IGNORED_APP_CHANGED == intent.action) {
-                updateIgnoredPackageList()
-                unbindSession()
-                bindSession()
-            }
-        }
-    }
-
     // ── Service lifecycle ─────────────────────────────────────────────────────
 
     override fun onListenerConnected() {
         super.onListenerConnected()
         Log.i(TAG, "onListenerConnected")
-        mSharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
         mNotificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        mIsAviumRom = detectAviumRom()
-        Log.i(TAG, "isAviumRom=$mIsAviumRom")
         ensureNotificationChannel()
         mMediaSessionManager = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
-        LocalBroadcastManager.getInstance(this).registerReceiver(
-            mIgnoredPackageReceiver,
-            IntentFilter(Constants.BROADCAST_IGNORED_APP_CHANGED)
+        contentResolver.registerContentObserver(
+            Settings.Secure.getUriFor(LyricFeatureSettings.getAllowedPackagesKey()),
+            false,
+            mAllowedPackagesObserver
         )
-        updateIgnoredPackageList()
+        updateAllowedPackageList()
         bindSession()
     }
 
@@ -313,7 +274,7 @@ if (controllers.isNullOrEmpty()) {
         mPendingFetch = null
         // Do NOT shutdownNow() – if the service reconnects in the same process lifetime,
         // the executor must still be usable. fetchLyric() recreates it lazily when needed.
-        LocalBroadcastManager.getInstance(this).unregisterReceiver(mIgnoredPackageReceiver)
+        contentResolver.unregisterContentObserver(mAllowedPackagesObserver)
         super.onListenerDisconnected()
     }
 
@@ -335,13 +296,9 @@ if (controllers.isNullOrEmpty()) {
         mMediaController = null
     }
 
-    private fun updateIgnoredPackageList() {
-        mIgnoredPackageList.clear()
-        val value = mSharedPreferences.getString(Constants.PREFERENCE_KEY_IGNORED_PACKAGES, "") ?: ""
-        value.split(";").forEach { s ->
-            val trimmed = s.trim()
-            if (trimmed.isNotEmpty()) mIgnoredPackageList.add(trimmed)
-        }
+    private fun updateAllowedPackageList() {
+        mAllowedPackageList.clear()
+        mAllowedPackageList.addAll(LyricFeatureSettings.getAllowedPackages(this))
     }
 
     private fun ensureNotificationChannel() {

@@ -4,24 +4,16 @@ import android.content.Context
 import android.provider.Settings
 
 object LyricFeatureSettings {
-    fun setEnabled(context: Context, enabled: Boolean) {
-        try {
-            Settings.Secure.putInt(
-                context.contentResolver,
-                Settings.Secure.STATUS_BAR_SHOW_LYRIC,
-                if (enabled) 1 else 0
-            )
-        } catch (_: Exception) {
-        }
+    private const val KEY_ALLOWED_PACKAGES = "status_bar_lyric_allowed_packages"
+
+    fun getAllowedPackages(context: Context): List<String> = try {
+        val value = Settings.Secure.getString(context.contentResolver, KEY_ALLOWED_PACKAGES).orEmpty()
+        value.split(';')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+    } catch (_: Exception) {
+        emptyList()
     }
 
-    fun isEnabled(context: Context, defaultValue: Boolean = false): Boolean = try {
-        Settings.Secure.getInt(
-            context.contentResolver,
-            Settings.Secure.STATUS_BAR_SHOW_LYRIC,
-            if (defaultValue) 1 else 0
-        ) == 1
-    } catch (_: Exception) {
-        defaultValue
-    }
+    fun getAllowedPackagesKey(): String = KEY_ALLOWED_PACKAGES
 }
