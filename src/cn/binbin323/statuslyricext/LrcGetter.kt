@@ -29,7 +29,12 @@ object LrcGetter {
     private val sKugouProvider = KugouProvider()
     private val sExecutor = Executors.newCachedThreadPool()
 
-    fun getLyric(context: Context, metadata: MediaMetadata): Lyric? {
+    data class LyricPayload(
+        val lyric: Lyric,
+        val translatedLyric: Lyric? = null
+    )
+
+    fun getLyric(context: Context, metadata: MediaMetadata): LyricPayload? {
         val title = metadata.getString(MediaMetadata.METADATA_KEY_TITLE)
         if (TextUtils.isEmpty(title)) return null
 
@@ -38,25 +43,36 @@ object LrcGetter {
         val duration = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION)
 
         val cacheKey = "$title,$artist,$album,$duration"
-        val cacheFile = File(context.cacheDir, sha1Hex(cacheKey) + ".lrc")
+        val cacheBase = sha1Hex("v2:$cacheKey")
+        val cacheFile = File(context.cacheDir, "$cacheBase.lrc")
+        val translatedCacheFile = File(context.cacheDir, "$cacheBase.tlrc")
 
         // Try cache first
         if (cacheFile.exists()) {
             val cached = LyricUtils.parseLyric(cacheFile, "UTF-8")
             if (cached.sentenceList.isNotEmpty()) {
                 Log.i(TAG, "cache hit (${cached.sentenceList.size} lines): $title")
-                return cached
+                val translatedCached =
+                    if (translatedCacheFile.exists()) {
+                        LyricUtils.parseLyric(translatedCacheFile, "UTF-8").takeIf {
+                            it.sentenceList.isNotEmpty()
+                        }
+                    } else {
+                        null
+                    }
+                return LyricPayload(cached, translatedCached)
             }
             // Corrupted cache – delete and re-fetch
             cacheFile.delete()
+            translatedCacheFile.delete()
         }
 
-        // Query all four providers in parallel, pick the best match (lowest distance)
+        // Query active providers in parallel, pick the best metadata match.
         val providers: List<Pair<String, ILrcProvider>> = listOf(
             "bin" to sBinProvider,
-            //"qqmusic" to sQQMusicProvider,
             "kugou" to sKugouProvider,
-            "netease" to sNeteaseProvider
+            "netease" to sNeteaseProvider,
+            "qqmusic" to sQQMusicProvider
         )
         val futures: List<Pair<String, Future<ILrcProvider.LyricResult?>>> = providers.map { (name, provider) ->
             name to sExecutor.submit<ILrcProvider.LyricResult?> {
@@ -86,11 +102,22 @@ object LrcGetter {
                 }
             }
 
-        val result = (validResults.firstOrNull { (name, _) -> name == "bin" }
-            ?.also { (_, res) -> Log.i(TAG, "bin provider found lyric, forcing bin (distance=${res.mDistance}) for: $title") }
-            ?: validResults.minByOrNull { (_, res) -> res.mDistance }
-                ?.also { (name, res) -> Log.i(TAG, "best provider: $name (distance=${res.mDistance}) for: $title") })
-            ?.second
+        val translatedResults = validResults.filter { (_, res) ->
+            LyricSearchUtil.isLyricContent(res.mTranslatedLyric)
+        }
+
+        val bestResult = (if (translatedResults.isNotEmpty()) translatedResults else validResults)
+            .minByOrNull { (_, res) -> res.mDistance }
+            ?.also { (name, res) ->
+                Log.i(
+                    TAG,
+                    "best provider: $name (distance=${res.mDistance}, translated=${
+                        LyricSearchUtil.isLyricContent(res.mTranslatedLyric)
+                    }) for: $title"
+                )
+            }
+
+        val result = bestResult?.second
 
         if (result == null || !LyricSearchUtil.isLyricContent(result.mLyric)) {
             Log.i(TAG, "no valid lyric for: $title")
@@ -103,18 +130,31 @@ object LrcGetter {
             Log.i(TAG, "empty sentence list after parse for: $title")
             return null
         }
+        val translatedLyric =
+            result.mTranslatedLyric
+                ?.takeIf { LyricSearchUtil.isLyricContent(it) }
+                ?.let { LyricUtils.parseLyric(it, "UTF-8") }
+                ?.takeIf { it.sentenceList.isNotEmpty() }
 
         // Persist to cache asynchronously-safe (write may fail silently)
         try {
             FileOutputStream(cacheFile).use { out ->
                 out.write(result.mLyric.toByteArray(Charsets.UTF_8))
             }
+            val translatedLyricContent = result.mTranslatedLyric
+            if (!translatedLyricContent.isNullOrBlank()) {
+                FileOutputStream(translatedCacheFile).use { out ->
+                    out.write(translatedLyricContent.toByteArray(Charsets.UTF_8))
+                }
+            } else if (translatedCacheFile.exists()) {
+                translatedCacheFile.delete()
+            }
         } catch (e: Exception) {
             Log.w(TAG, "failed to write lyric cache", e)
         }
 
         Log.i(TAG, "fetched ${lyric.sentenceList.size} lines for: $title")
-        return lyric
+        return LyricPayload(lyric, translatedLyric)
     }
 
     private fun sha1Hex(input: String): String {

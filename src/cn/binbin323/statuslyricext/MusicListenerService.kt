@@ -45,13 +45,16 @@ class MusicListenerService : NotificationListenerService() {
     private val mAllowedPackageList = mutableListOf<String>()
 
     private var mLyric: Lyric? = null
+    private var mTranslatedLyric: Lyric? = null
     private var mLastDisplayedFromTime = -1L
     private var mCurrentSentenceIndex = 0
+    private var mCurrentTranslatedSentenceIndex = 0
     private var mIsPlaying = false
     // Tracks the title for which a fetch was most recently started; used for stale-result detection.
     private var mFetchingTitle: String? = null
     // Current song title shown in the notification content area.
     private var mCurrentSongTitle: String = ""
+    private var mCurrentMediaPackage: String? = null
 
     private val mAllowedPackagesObserver = object : ContentObserver(mMainHandler) {
         override fun onChange(selfChange: Boolean) {
@@ -82,7 +85,9 @@ class MusicListenerService : NotificationListenerService() {
         mPendingFetch?.cancel(true)
         mPendingFetch = null
         mLyric = null
+        mTranslatedLyric = null
         mCurrentSentenceIndex = 0
+        mCurrentTranslatedSentenceIndex = 0
         mLastDisplayedFromTime = -1L
 
         val fetchTitle = metadata.getString(MediaMetadata.METADATA_KEY_TITLE)
@@ -107,7 +112,7 @@ class MusicListenerService : NotificationListenerService() {
         }
     }
 
-    private fun onLyricFetched(fetchTitle: String, lyric: Lyric?) {
+    private fun onLyricFetched(fetchTitle: String, payload: LrcGetter.LyricPayload?) {
         // Compare against the title we last requested, NOT against the live controller metadata.
         // Querying mMediaController?.metadata at callback time is unreliable – the controller can
         // be null or metadata can temporarily be null during transitions, causing valid results to
@@ -116,13 +121,16 @@ class MusicListenerService : NotificationListenerService() {
             Log.i(TAG, "onLyricFetched: stale, discarding [$fetchTitle] (current: $mFetchingTitle)")
             return
         }
+        val lyric = payload?.lyric
         if (lyric == null || lyric.sentenceList.isEmpty()) {
             Log.i(TAG, "onLyricFetched: no lyric for $fetchTitle")
             return
         }
         Log.i(TAG, "onLyricFetched: ${lyric.sentenceList.size} lines loaded for $fetchTitle")
         mLyric = lyric
+        mTranslatedLyric = payload.translatedLyric
         mCurrentSentenceIndex = 0
+        mCurrentTranslatedSentenceIndex = 0
         mLastDisplayedFromTime = -1L
     }
 
@@ -132,6 +140,7 @@ class MusicListenerService : NotificationListenerService() {
         Log.i(TAG, "onPlaybackStarted")
         mIsPlaying = true
         mCurrentSentenceIndex = 0
+        mCurrentTranslatedSentenceIndex = 0
         mMainHandler.removeCallbacks(mTickRunnable)
         mMainHandler.post(mTickRunnable)
     }
@@ -160,10 +169,10 @@ class MusicListenerService : NotificationListenerService() {
         if (TextUtils.isEmpty(sentence.content)) return
 
         Log.i(TAG, "Lyric → ${sentence.content}")
-        postLyricNotification(sentence.content)
+        postLyricNotification(sentence.content, getTranslatedSentenceContent(sentence.fromTime))
     }
 
-    private fun postLyricNotification(text: String) {
+    private fun postLyricNotification(text: String, translationText: String?) {
         val nm = mNotificationManager ?: return
         val songTitle = mCurrentSongTitle.ifEmpty { text }
 
@@ -178,10 +187,31 @@ class MusicListenerService : NotificationListenerService() {
 
         notification.extras.putInt("ticker_icon", R.drawable.ic_music)
         notification.extras.putBoolean("ticker_icon_switch", false)
+        notification.extras.putString(
+            Constants.EXTRA_TICKER_ICON_PACKAGE,
+            mCurrentMediaPackage
+        )
+        notification.extras.putString(Constants.EXTRA_TICKER_TRANSLATION, translationText)
         notification.flags = notification.flags or
                 Constants.FLAG_ALWAYS_SHOW_TICKER or
                 Constants.FLAG_ONLY_UPDATE_TICKER
         nm.notify(NOTIFICATION_ID_LRC, notification)
+    }
+
+    private fun getTranslatedSentenceContent(fromTime: Long): String? {
+        val translatedLyric = mTranslatedLyric ?: return null
+        if (translatedLyric.sentenceList.isEmpty()) return null
+
+        val index = LyricUtils.getSentenceIndex(
+            translatedLyric,
+            fromTime,
+            mCurrentTranslatedSentenceIndex,
+            translatedLyric.offset
+        )
+        if (index < 0) return null
+
+        mCurrentTranslatedSentenceIndex = index
+        return translatedLyric.sentenceList[index].content.takeUnless { it.isBlank() }
     }
 
     // ── MediaController callbacks ─────────────────────────────────────────────
@@ -240,6 +270,7 @@ class MusicListenerService : NotificationListenerService() {
             }
 
             Log.i(TAG, "binding to: ${best.packageName}")
+            mCurrentMediaPackage = best.packageName
             mMediaController = best
             mMediaController!!.registerCallback(mMediaCallback)
             mMediaController!!.metadata?.let { mMediaCallback.onMetadataChanged(it) }

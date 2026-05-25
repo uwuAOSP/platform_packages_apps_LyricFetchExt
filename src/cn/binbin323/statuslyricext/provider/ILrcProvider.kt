@@ -8,6 +8,7 @@ interface ILrcProvider {
 
     data class LyricResult(
         var mLyric: String = "",
+        var mTranslatedLyric: String? = null,
         var mDistance: Long = 0L
     )
 }

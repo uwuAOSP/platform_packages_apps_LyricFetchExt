@@ -27,7 +27,13 @@ class NeteaseProvider : ILrcProvider {
 
             val lrcJson = HttpRequestUtil.getJsonResponse(lrcUrl) ?: return null
             val lyric = lrcJson.getJSONObject("lrc").getString("lyric")
-            ILrcProvider.LyricResult(mLyric = lyric, mDistance = distance)
+            val translatedLyric =
+                lrcJson.optJSONObject("tlyric")?.optString("lyric")?.takeIf { it.isNotBlank() }
+            ILrcProvider.LyricResult(
+                mLyric = lyric,
+                mTranslatedLyric = translatedLyric,
+                mDistance = distance
+            )
         } catch (e: JSONException) {
             null
         }
