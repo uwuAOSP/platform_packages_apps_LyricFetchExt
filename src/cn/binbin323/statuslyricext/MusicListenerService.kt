@@ -255,7 +255,7 @@ class MusicListenerService : NotificationListenerService() {
 
             var best: MediaController? = null
             for (c in controllers) {
-                if (mAllowedPackageList.isNotEmpty() && !mAllowedPackageList.contains(c.packageName)) {
+                if (!mAllowedPackageList.contains(c.packageName)) {
                     continue
                 }
                 if (getControllerState(c) == PlaybackState.STATE_PLAYING) {
