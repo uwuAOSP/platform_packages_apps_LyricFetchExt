@@ -1,12 +1,15 @@
 package cn.binbin323.statuslyricext
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
 import android.database.ContentObserver
+import android.graphics.drawable.Icon
 import android.media.MediaMetadata
 import android.media.session.MediaController
+import android.media.session.MediaSession
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Handler
@@ -52,6 +55,7 @@ class MusicListenerService : NotificationListenerService() {
     private var mIsPlaying = false
     // Tracks the title for which a fetch was most recently started; used for stale-result detection.
     private var mFetchingTitle: String? = null
+    private var mCurrentTrackKey: String? = null
     // Current song title shown in the notification content area.
     private var mCurrentSongTitle: String = ""
     private var mCurrentMediaPackage: String? = null
@@ -82,6 +86,15 @@ class MusicListenerService : NotificationListenerService() {
     // ── Lyric fetch ───────────────────────────────────────────────────────────
 
     private fun fetchLyric(metadata: MediaMetadata) {
+        val trackKey = buildTrackKey(metadata)
+        if (trackKey == mCurrentTrackKey &&
+            (mLyric != null || mPendingFetch?.isDone == false)) {
+            return
+        }
+        mCurrentTrackKey = trackKey
+
+        // Only clear the current lyric after confirming that the track actually changed.
+        mNotificationManager?.cancel(NOTIFICATION_ID_LRC)
         mPendingFetch?.cancel(true)
         mPendingFetch = null
         mLyric = null
@@ -111,6 +124,14 @@ class MusicListenerService : NotificationListenerService() {
             mMainHandler.post { onLyricFetched(fetchTitle, result) }
         }
     }
+
+    private fun buildTrackKey(metadata: MediaMetadata): String = listOf(
+        mCurrentMediaPackage.orEmpty(),
+        metadata.getString(MediaMetadata.METADATA_KEY_TITLE).orEmpty(),
+        metadata.getString(MediaMetadata.METADATA_KEY_ARTIST).orEmpty(),
+        metadata.getString(MediaMetadata.METADATA_KEY_ALBUM).orEmpty(),
+        metadata.getLong(MediaMetadata.METADATA_KEY_DURATION).toString()
+    ).joinToString("\u0000")
 
     private fun onLyricFetched(fetchTitle: String, payload: LrcGetter.LyricPayload?) {
         // Compare against the title we last requested, NOT against the live controller metadata.
@@ -191,12 +212,38 @@ class MusicListenerService : NotificationListenerService() {
             Constants.EXTRA_TICKER_ICON_PACKAGE,
             mCurrentMediaPackage
         )
+        findCurrentMediaSmallIcon()?.let {
+            notification.extras.putParcelable(Constants.EXTRA_TICKER_SMALL_ICON, it)
+        }
         notification.extras.putString(Constants.EXTRA_TICKER_TRANSLATION, translationText)
         notification.flags = notification.flags or
                 Constants.FLAG_ALWAYS_SHOW_TICKER or
                 Constants.FLAG_ONLY_UPDATE_TICKER
         nm.notify(NOTIFICATION_ID_LRC, notification)
     }
+
+    private fun findCurrentMediaSmallIcon(): Icon? {
+        val controller = mMediaController ?: return null
+        val packageName = controller.packageName
+        val sessionToken = controller.sessionToken
+        val mediaNotifications = activeNotifications
+            ?.asSequence()
+            ?.filter { it.packageName == packageName && it.notification.isMediaNotification }
+            ?.toList()
+            .orEmpty()
+
+        return mediaNotifications
+            .firstOrNull { getMediaSessionToken(it) == sessionToken }
+            ?.notification
+            ?.smallIcon
+            ?: mediaNotifications.maxByOrNull { it.postTime }?.notification?.smallIcon
+    }
+
+    private fun getMediaSessionToken(sbn: StatusBarNotification): MediaSession.Token? =
+        sbn.notification.extras.getParcelable(
+            Notification.EXTRA_MEDIA_SESSION,
+            MediaSession.Token::class.java
+        )
 
     private fun getTranslatedSentenceContent(fromTime: Long): String? {
         val translatedLyric = mTranslatedLyric ?: return null
@@ -227,9 +274,6 @@ class MusicListenerService : NotificationListenerService() {
         override fun onMetadataChanged(metadata: MediaMetadata?) {
             Log.i(TAG, "onMetadataChanged: ${metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: "null"}")
             if (metadata == null) return
-            // Cancel the old lyric notification immediately so stale lyrics don't linger
-            // while the new song's lyrics are being fetched.
-            mNotificationManager?.cancel(NOTIFICATION_ID_LRC)
             fetchLyric(metadata)
         }
 
