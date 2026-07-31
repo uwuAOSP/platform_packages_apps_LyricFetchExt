@@ -11,13 +11,19 @@ import android.util.Log
 
 class BootCompletedReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        grantNotificationListenerAccessIfNeeded(context)
+        grantNotificationListenerAccessIfNeeded(
+            context,
+            ComponentName(context, MusicListenerService::class.java)
+        )
+        grantNotificationListenerAccessIfNeeded(context, STATUS_BAR_LYRIC_LISTENER)
     }
 
-    private fun grantNotificationListenerAccessIfNeeded(context: Context) {
-        if (isNotificationListenerEnabled(context)) return
+    private fun grantNotificationListenerAccessIfNeeded(
+        context: Context,
+        listener: ComponentName
+    ) {
+        if (isNotificationListenerEnabled(context, listener)) return
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        val listener = ComponentName(context, MusicListenerService::class.java)
         try {
             manager.setNotificationListenerAccessGranted(listener, true, false)
         } catch (e: Exception) {
@@ -25,7 +31,10 @@ class BootCompletedReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun isNotificationListenerEnabled(context: Context): Boolean {
+    private fun isNotificationListenerEnabled(
+        context: Context,
+        listener: ComponentName
+    ): Boolean {
         val flat = Settings.Secure.getString(
             context.contentResolver,
             "enabled_notification_listeners"
@@ -35,7 +44,8 @@ class BootCompletedReceiver : BroadcastReceiver() {
         }
         for (name in flat.split(":")) {
             val component = ComponentName.unflattenFromString(name) ?: continue
-            if (TextUtils.equals(context.packageName, component.packageName)) {
+            if (TextUtils.equals(listener.packageName, component.packageName)
+                && TextUtils.equals(listener.className, component.className)) {
                 return true
             }
         }
@@ -44,5 +54,9 @@ class BootCompletedReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "BootCompletedReceiver"
+        private val STATUS_BAR_LYRIC_LISTENER = ComponentName(
+            "org.uwuaosp.systemui.moment.arc",
+            "org.uwuaosp.systemui.moment.arc.lyric.LyricNotificationListener"
+        )
     }
 }
